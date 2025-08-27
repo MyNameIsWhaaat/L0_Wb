@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>L0 Demo — просмотр заказа</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b0c10;
+      --card: #121319;
+      --text: #e6edf3;
+      --muted: #9aa7b2;
+      --accent: #4f9cff;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --border: #1f2430;
+      --code: #0e1015;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; color: var(--text); background: radial-gradient(1200px 800px at 80% -10%, #122, transparent 50%) , var(--bg);
+      font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    .wrap { max-width: 980px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 22px; margin: 0 0 12px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: 0 8px 40px rgba(0,0,0,.25);
+    }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input[type="text"] {
+      flex: 1 1 380px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+      background: #0f1117; color: var(--text); outline: none;
+    }
+    button {
+      padding: 10px 14px; border: 1px solid var(--border); background: #152033; color: var(--text);
+      border-radius: 10px; cursor: pointer; transition: transform .05s ease, background .15s ease;
+    }
+    button:hover { background: #1a2a45; }
+    button:active { transform: scale(.98); }
+    .ghost { background: transparent; }
+    .status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); }
+    .ok { color: var(--ok); border-color: rgba(34,197,94,.35); }
+    .warn { color: var(--warn); border-color: rgba(245,158,11,.35); }
+    .err { color: var(--err); border-color: rgba(239,68,68,.35); }
+    pre {
+      background: var(--code); border: 1px solid var(--border); border-radius: 12px; padding: 14px; overflow: auto;
+      max-height: 65vh; white-space: pre-wrap; word-break: break-word;
+    }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    .small { font-size: 12px; color: var(--muted); }
+    .spacer { height: 8px; }
+    .hint { color: var(--muted); }
+    .link { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>L0 Demo — просмотр заказа</h1>
+    <div class="card grid">
+      <div class="row">
+        <input id="uid" type="text" placeholder="Введите order_uid (например: b563feb7b2b84b6test)" />
+        <button id="btnCache">Найти (кэш)</button>
+        <button id="btnDb" class="ghost">Найти (БД)</button>
+        <button id="btnClear" class="ghost" title="Очистить экран">Очистить</button>
+      </div>
+      <div class="row small hint">
+        <span>Эндпоинты: <code>/api/order/:uid</code> (кэш), <code>/api/order/db/:uid</code> (БД), <code>/api/orders</code> (все из кэша)</span>
+      </div>
+      <div id="status" class="status"></div>
+      <pre id="out" hidden>{}</pre>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <div class="small">Быстрые действия</div>
+        <div class="row">
+          <button id="btnAll" class="ghost">Показать все из кэша</button>
+          <button id="btnDemo" class="ghost">Вставить демо UID</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const out = $('out');
+    const status = $('status');
+    const uidInput = $('uid');
+    const DEMO_UID = 'b563feb7b2b84b6test'; // поменяй при желании
+
+    function setStatus(type, text) {
+      const cls = type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : 'err';
+      status.innerHTML = `<span class="badge ${cls}">${text}</span>`;
+    }
+    function showJSON(obj) {
+      out.hidden = false;
+      out.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    }
+    function clearOutput() {
+      out.hidden = true;
+      out.textContent = '';
+      status.textContent = '';
+    }
+
+    async function fetchJSON(url) {
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      const text = await res.text().catch(() => '');
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+      return { ok: res.ok, status: res.status, data, text };
+    }
+
+    async function getFromCache(uid) {
+      setStatus('warn', `Запрос /api/order/${uid} (кэш) ...`);
+      const r = await fetchJSON(`/api/order/${encodeURIComponent(uid)}`);
+      if (r.ok) {
+        setStatus('ok', `Найдено в кэше (200)`);
+        showJSON(r.data);
+        return true;
+      }
+      if (r.status === 404 || r.status === 400) {
+        setStatus('warn', `В кэше не найдено (${r.status}). Пробуем БД...`);
+        return false;
+      }
+      setStatus('err', `Ошибка кэша (${r.status})`);
+      showJSON(r.data || r.text || 'Ошибка');
+      return null;
+    }
+
+    async function getFromDb(uid) {
+      setStatus('warn', `Запрос /api/order/db/${uid} (БД) ...`);
+      const r = await fetchJSON(`/api/order/db/${encodeURIComponent(uid)}`);
+      if (r.ok) {
+        setStatus('ok', `Найдено в БД (200)`);
+        showJSON(r.data);
+      } else if (r.status === 404) {
+        setStatus('warn', `В БД не найдено (404)`);
+        showJSON(r.data || r.text || '{}');
+      } else {
+        setStatus('err', `Ошибка БД (${r.status})`);
+        showJSON(r.data || r.text || 'Ошибка');
+      }
+    }
+
+    $('btnCache').addEventListener('click', async () => {
+      const uid = uidInput.value.trim();
+      if (!uid) { setStatus('err', 'Введите order_uid'); return; }
+      const hit = await getFromCache(uid);
+      if (hit === false) { await getFromDb(uid); }
+    });
+    $('btnDb').addEventListener('click', async () => {
+      const uid = uidInput.value.trim();
+      if (!uid) { setStatus('err', 'Введите order_uid'); return; }
+      await getFromDb(uid);
+    });
+    $('btnAll').addEventListener('click', async () => {
+      setStatus('warn', 'Запрос /api/orders ...');
+      const r = await fetchJSON('/api/orders');
+      if (r.ok) { setStatus('ok', 'Список из кэша'); showJSON(r.data); }
+      else { setStatus('err', `Ошибка (${r.status})`); showJSON(r.data || r.text || 'Ошибка'); }
+    });
+    $('btnClear').addEventListener('click', clearOutput);
+    $('btnDemo').addEventListener('click', () => { uidInput.value = DEMO_UID; uidInput.focus(); });
+
+    // Удобство: подтянуть последний UID из localStorage
+    const LS_KEY = 'l0_last_uid';
+    uidInput.value = localStorage.getItem(LS_KEY) || '';
+    uidInput.addEventListener('change', () => localStorage.setItem(LS_KEY, uidInput.value.trim()));
+  </script>
+</body>
+</html>
