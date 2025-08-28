@@ -13,7 +13,6 @@ import (
 )
 
 func Test_Postgres_FullCoverage(t *testing.T) {
-	// --- Запуск контейнера Postgres ---
 	pool, err := dockertest.NewPool("")
 	require.NoError(t, err)
 
@@ -42,7 +41,6 @@ func Test_Postgres_FullCoverage(t *testing.T) {
 			return err
 		}
 
-		// AutoMigrate сразу все таблицы
 		require.NoError(t, db.AutoMigrate(&models.Order{}, &models.Delivery{}, &models.Payment{}, &models.Item{}).Error)
 
 		dbWrapper = repository.NewRepository(db)

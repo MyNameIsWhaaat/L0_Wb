@@ -71,7 +71,7 @@ func (o *OrderPostgresRepo) Get(uid string) (models.Order, error) {
 }
 
 func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
-	// гарантируем FK в дочках
+
 	ord.Delivery.OrderRefer = ord.OrderUid
 	ord.Payment.OrderRefer  = ord.OrderUid
 	for i := range ord.Items {
@@ -79,18 +79,18 @@ func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 	}
 
 	return o.db.Transaction(func(tx *gorm.DB) error {
-		// есть ли такой заказ?
+	
 		var existing models.Order
 		err := tx.Where("order_uid = ?", ord.OrderUid).First(&existing).Error
 		if gorm.IsRecordNotFoundError(err) {
-			// не найден — обычная вставка со связями
+			
 			return tx.Create(&ord).Error
 		}
 		if err != nil {
 			return err
 		}
 
-		// найден — обновим корневую запись
+	
 		if err := tx.Model(&models.Order{}).
 			Where("order_uid = ?", ord.OrderUid).
 			Updates(map[string]interface{}{
@@ -108,7 +108,7 @@ func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 			return err
 		}
 
-		// 1:1 — обновления
+	
 		if err := tx.Model(&models.Delivery{}).
 			Where("order_refer = ?", ord.OrderUid).
 			Updates(ord.Delivery).Error; err != nil {
@@ -120,7 +120,7 @@ func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 			return err
 		}
 
-		// 1:N items — заменяем список: удаляем старые → вставляем новые
+
 		if err := tx.Where("order_refer = ?", ord.OrderUid).Delete(&models.Item{}).Error; err != nil {
 			return err
 		}

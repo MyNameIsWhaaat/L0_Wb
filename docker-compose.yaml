@@ -43,3 +43,7 @@ services:
 
 volumes:
   db_data:
+
+networks:
+  monitoring:
+    driver: bridge

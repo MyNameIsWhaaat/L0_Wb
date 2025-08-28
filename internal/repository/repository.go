@@ -9,8 +9,8 @@ import (
 )
 
 type OrderPostgres interface {
-    Create(ord models.Order) error                     // оставим для совместимости
-    CreateOrUpdate(ord models.Order) error            // <-- добавь
+    Create(ord models.Order) error                    
+    CreateOrUpdate(ord models.Order) error            
     Get(uid string) (models.Order, error)
     GetAll() ([]models.Order, error)
 }

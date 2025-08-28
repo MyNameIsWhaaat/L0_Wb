@@ -79,7 +79,6 @@
         <div class="small">Быстрые действия</div>
         <div class="row">
           <button id="btnAll" class="ghost">Показать все из кэша</button>
-          <button id="btnDemo" class="ghost">Вставить демо UID</button>
         </div>
       </div>
     </div>
@@ -90,7 +89,7 @@
     const out = $('out');
     const status = $('status');
     const uidInput = $('uid');
-    const DEMO_UID = 'b563feb7b2b84b6test'; // поменяй при желании
+    const DEMO_UID = 'b563feb7b2b84b6test';
 
     function setStatus(type, text) {
       const cls = type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : 'err';
@@ -110,7 +109,7 @@
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       const text = await res.text().catch(() => '');
       let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+      try { data = text ? JSON.parse(text) : null; } catch {}
       return { ok: res.ok, status: res.status, data, text };
     }
 
@@ -166,7 +165,6 @@
     $('btnClear').addEventListener('click', clearOutput);
     $('btnDemo').addEventListener('click', () => { uidInput.value = DEMO_UID; uidInput.focus(); });
 
-    // Удобство: подтянуть последний UID из localStorage
     const LS_KEY = 'l0_last_uid';
     uidInput.value = localStorage.getItem(LS_KEY) || '';
     uidInput.addEventListener('change', () => localStorage.setItem(LS_KEY, uidInput.value.trim()));

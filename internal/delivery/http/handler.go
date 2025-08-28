@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	_ "l0-demo/docs"
 
@@ -50,8 +49,6 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		}
 		c.File("internal/web/index.html")
 	})
-
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 

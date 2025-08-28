@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"l0-demo/internal/configs"
@@ -18,30 +17,6 @@ import (
 	"l0-demo/internal/repository/postgres"
 	"l0-demo/internal/service"
 )
-
-var (
-	requests = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "api_requests_total",
-			Help: "Total number of requests",
-		},
-		[]string{"method", "endpoint"},
-	)
-
-	duration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "api_duration_seconds",
-			Help:    "Histogram of response durations",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"method", "endpoint"},
-	)
-)
-
-func init() { 
-	prometheus.MustRegister(requests)
-	prometheus.MustRegister(duration)
-}
 
 // @title kafka learning service
 // @version 1.0
