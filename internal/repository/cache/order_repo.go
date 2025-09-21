@@ -52,13 +52,13 @@ func (o *OrderCacheRepo) GetAllOrders() ([]models.Order, error) {
 	orders := make([]models.Order, len(o.cch.Data))
 
 	i := 0
-	for _, valueMap := range o.cch.Data {
+	for uid, valueMap := range o.cch.Data { 
 		valueOrder, ok := valueMap.(models.Order)
 		if !ok {
-			return nil,
-				NewErrorHandler(
-					errors.New(fmt.Sprintf("failed to convert order with uid %s to its struct", valueOrder.OrderUid)),
-					http.StatusInternalServerError)
+			return nil, NewErrorHandler(
+				fmt.Errorf("failed to convert order with uid %s to its struct", uid),
+				http.StatusInternalServerError,
+			)
 		}
 		orders[i] = valueOrder
 		i++
