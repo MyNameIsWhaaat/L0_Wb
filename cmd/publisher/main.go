@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	
+
 	if err := godotenv.Load(); err != nil {
-    	logrus.Fatalf("failed to load .env: %s", err)
+		logrus.Fatalf("failed to load .env: %s", err)
 	}
 
 	cfg, err := configs.LoadConfig(".")

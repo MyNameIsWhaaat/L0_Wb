@@ -27,10 +27,10 @@ func NewConsumer(cfg Config, svc service.Order) *Consumer {
 		Brokers:        cfg.Brokers,
 		GroupID:        cfg.GroupID,
 		Topic:          cfg.Topic,
-		MinBytes:       1,   
-		MaxBytes:       10e6,  
+		MinBytes:       1,
+		MaxBytes:       10e6,
 		MaxWait:        250 * time.Millisecond,
-		CommitInterval: 0, 
+		CommitInterval: 0,
 	})
 	return &Consumer{reader: r, svc: svc}
 }

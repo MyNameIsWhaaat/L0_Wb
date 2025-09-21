@@ -1,10 +1,11 @@
 package http
 
 import (
-	"l0-demo/internal/models"
-	"l0-demo/internal/service"
 	"net/http"
 	"strings"
+
+	"l0-demo/internal/models"
+	"l0-demo/internal/service"
 
 	"github.com/gin-gonic/gin"
 

@@ -30,7 +30,7 @@ import (
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-    	logrus.Fatalf("failed to load .env: %s", err)
+		logrus.Fatalf("failed to load .env: %s", err)
 	}
 	cfg, err := configs.LoadConfig(".")
 	if err != nil {
@@ -72,7 +72,7 @@ func main() {
 		GroupID: cfg.KafkaGroupID,
 		Topic:   cfg.KafkaTopic,
 	}, svc)
-	
+
 	defer func() {
 		if cerr := consumer.Close(context.Background()); cerr != nil {
 			logrus.Errorf("kafka close: %v", cerr)
@@ -103,7 +103,7 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-	
+
 	select {
 	case <-quit:
 		logrus.Print("shutdown signal received")

@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"fmt"
-	"l0-demo/internal/models"
+
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/postgres"
+
+	"l0-demo/internal/models"
 )
 
 type Config struct {

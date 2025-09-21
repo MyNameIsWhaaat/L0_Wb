@@ -28,11 +28,11 @@ type Config struct {
 }
 
 func LoadConfig(_ string) (Config, error) {
-    var c Config
-    if err := env.Parse(&c); err != nil {
-        return Config{}, fmt.Errorf("config parse: %w", err)
-    }
-    return c, nil
+	var c Config
+	if err := env.Parse(&c); err != nil {
+		return Config{}, fmt.Errorf("config parse: %w", err)
+	}
+	return c, nil
 }
 
 func (c Config) KafkaBrokersSlice() []string {

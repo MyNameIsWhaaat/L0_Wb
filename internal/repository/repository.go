@@ -2,17 +2,17 @@ package repository
 
 import (
 	"l0-demo/internal/models"
-	"l0-demo/internal/repository/postgres"
 	"l0-demo/internal/repository/cache"
+	"l0-demo/internal/repository/postgres"
 
 	"github.com/jinzhu/gorm"
 )
 
 type OrderPostgres interface {
-    Create(ord models.Order) error                    
-    CreateOrUpdate(ord models.Order) error            
-    Get(uid string) (models.Order, error)
-    GetAll() ([]models.Order, error)
+	Create(ord models.Order) error
+	CreateOrUpdate(ord models.Order) error
+	Get(uid string) (models.Order, error)
+	GetAll() ([]models.Order, error)
 }
 
 type OrderCache interface {

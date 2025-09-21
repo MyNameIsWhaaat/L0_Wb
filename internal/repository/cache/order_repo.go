@@ -2,66 +2,58 @@ package cache
 
 import (
 	"fmt"
+
 	"l0-demo/internal/models"
 
 	"net/http"
-
-	"github.com/pkg/errors"
 )
 
 type OrderCacheRepo struct {
-	cch *Cache
+	cch KV
 }
 
-func NewOrderCache(cch *Cache) *OrderCacheRepo {
+func NewOrderCache(cch KV) *OrderCacheRepo {
 	return &OrderCacheRepo{cch: cch}
 }
 
-func (o *OrderCacheRepo) PutOrder(uid string, order models.Order) {
-	o.cch.Mutex.Lock()
-	defer o.cch.Mutex.Unlock()
-	o.cch.Data[uid] = order
+func (o *OrderCacheRepo) PutOrder(uid string, ord models.Order) {
+	o.cch.Put(uid, ord)
 }
 
 func (o *OrderCacheRepo) GetOrder(uid string) (models.Order, error) {
-	o.cch.Mutex.RLock()
-	defer o.cch.Mutex.RUnlock()
+	v, ok := o.cch.Get(uid)
+	if !ok {
+		return models.Order{}, NewErrorHandler(fmt.Errorf("order %s not found", uid), http.StatusNotFound)
+	}
 
-	if orderData, found := o.cch.Data[uid]; found {
-		if value, ok := orderData.(models.Order); ok {
-			return value, nil
-		}
+	ord, ok := v.(models.Order)
+	if !ok {
 		return models.Order{},
-			NewErrorHandler(
-				errors.New(fmt.Sprintf("failed to convert order with uid %s to its struct", uid)),
+			NewErrorHandler(fmt.Errorf("failed to convert order with uid %s to its struct", uid),
 				http.StatusInternalServerError)
 	}
-	return models.Order{},
-		NewErrorHandler(
-			errors.New(fmt.Sprintf("order with uid %s was not found in cache", uid)),
-			http.StatusNotFound)
+	return ord, nil
 }
 
 func (o *OrderCacheRepo) GetAllOrders() ([]models.Order, error) {
-	o.cch.Mutex.RLock()
-	defer o.cch.Mutex.RUnlock()
-
-	if len(o.cch.Data) == 0 {
+	snap := o.cch.Snapshot()
+	if len(snap) == 0 {
 		return []models.Order{}, nil
 	}
-	orders := make([]models.Order, len(o.cch.Data))
 
-	i := 0
-	for uid, valueMap := range o.cch.Data { 
-		valueOrder, ok := valueMap.(models.Order)
+	orders := make([]models.Order, 0, len(snap))
+	for uid, val := range snap {
+		ord, ok := val.(models.Order)
 		if !ok {
-			return nil, NewErrorHandler(
-				fmt.Errorf("failed to convert order with uid %s to its struct", uid),
-				http.StatusInternalServerError,
-			)
+			return nil,
+				NewErrorHandler(fmt.Errorf("failed to convert order with uid %s to its struct", uid),
+					http.StatusInternalServerError)
 		}
-		orders[i] = valueOrder
-		i++
+		orders = append(orders, ord)
 	}
 	return orders, nil
+}
+
+func (o *OrderCacheRepo) Delete(uid string) {
+	o.cch.Delete(uid)
 }

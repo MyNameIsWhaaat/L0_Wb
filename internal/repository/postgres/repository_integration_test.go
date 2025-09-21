@@ -1,18 +1,17 @@
 package postgres_test
 
-import ( 
+import (
 	"testing"
 	"time"
 
+	gorm "github.com/jinzhu/gorm"
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/require"
-	gorm "github.com/jinzhu/gorm"
 
 	"l0-demo/internal/models"
 	repo "l0-demo/internal/repository"
 	pg "l0-demo/internal/repository/postgres"
 )
-
 
 type pgEnv struct {
 	pool     *dockertest.Pool
@@ -109,7 +108,6 @@ func order(uid, track string, withItems bool) models.Order {
 	return o
 }
 
-
 func Test_Postgres_CreateUpdateGet_GetAll_Positive(t *testing.T) {
 	env := upPostgres(t)
 
@@ -178,89 +176,89 @@ func Test_Postgres_GetAll_Empty_OK(t *testing.T) {
 }
 
 func Test_CreateOrUpdate_CreateBranch_CreateError(t *testing.T) {
-    env := upPostgres(t)
+	env := upPostgres(t)
 
-    require.NoError(t, env.DB.DropTable(&models.Order{}).Error)
+	require.NoError(t, env.DB.DropTable(&models.Order{}).Error)
 
-    o := order("uid_new", "TRACK_NEW", true)
-    err := env.R.OrderPostgres.CreateOrUpdate(o)
-    require.Error(t, err, "expected error from tx.Create(&ord) on missing table")
+	o := order("uid_new", "TRACK_NEW", true)
+	err := env.R.OrderPostgres.CreateOrUpdate(o)
+	require.Error(t, err, "expected error from tx.Create(&ord) on missing table")
 }
 
 func Test_CreateOrUpdate_UpdateBranch_OrderUpdatesError_UniqueTrack(t *testing.T) {
-    env := upPostgres(t)
+	env := upPostgres(t)
 
-    require.NoError(t, env.DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_track ON orders (track_number)`).Error)
+	require.NoError(t, env.DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_track ON orders (track_number)`).Error)
 
-    a := order("uid_A", "TRACK_A", false)
-    b := order("uid_B", "TRACK_B", false)
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(a))
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(b))
+	a := order("uid_A", "TRACK_A", false)
+	b := order("uid_B", "TRACK_B", false)
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(a))
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(b))
 
-    a.TrackNumber = "TRACK_B"
-    err := env.R.OrderPostgres.CreateOrUpdate(a)
-    require.Error(t, err, "expected unique constraint violation on orders(track_number)")
+	a.TrackNumber = "TRACK_B"
+	err := env.R.OrderPostgres.CreateOrUpdate(a)
+	require.Error(t, err, "expected unique constraint violation on orders(track_number)")
 }
 
 func Test_CreateOrUpdate_UpdateBranch_DeliveryUpdatesError_DroppedTable(t *testing.T) {
-    env := upPostgres(t)
+	env := upPostgres(t)
 
-    o := order("uid_del_upd", "TRACK_DEL", false)
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
+	o := order("uid_del_upd", "TRACK_DEL", false)
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    require.NoError(t, env.DB.DropTable(&models.Delivery{}).Error)
+	require.NoError(t, env.DB.DropTable(&models.Delivery{}).Error)
 
-    o.Delivery.Name = "New Name"
-    err := env.R.OrderPostgres.CreateOrUpdate(o)
-    require.Error(t, err, "expected error updating deliveries after table drop")
+	o.Delivery.Name = "New Name"
+	err := env.R.OrderPostgres.CreateOrUpdate(o)
+	require.Error(t, err, "expected error updating deliveries after table drop")
 }
 
 func Test_CreateOrUpdate_UpdateBranch_PaymentUpdatesError_DroppedTable(t *testing.T) {
-    env := upPostgres(t)
+	env := upPostgres(t)
 
-    o := order("uid_pay_upd", "TRACK_PAY", false)
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
+	o := order("uid_pay_upd", "TRACK_PAY", false)
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    require.NoError(t, env.DB.DropTable(&models.Payment{}).Error)
+	require.NoError(t, env.DB.DropTable(&models.Payment{}).Error)
 
-    o.Payment.Amount = 777
-    err := env.R.OrderPostgres.CreateOrUpdate(o)
-    require.Error(t, err, "expected error updating payments after table drop")
+	o.Payment.Amount = 777
+	err := env.R.OrderPostgres.CreateOrUpdate(o)
+	require.Error(t, err, "expected error updating payments after table drop")
 }
 
 func Test_CreateOrUpdate_UpdateBranch_DeleteItemsError_DroppedTable(t *testing.T) {
-    env := upPostgres(t)
+	env := upPostgres(t)
 
-    o := order("uid_del_items", "TRACK_DI", true)
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
+	o := order("uid_del_items", "TRACK_DI", true)
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    require.NoError(t, env.DB.DropTable(&models.Item{}).Error)
+	require.NoError(t, env.DB.DropTable(&models.Item{}).Error)
 
-    o.Items = []models.Item{{ ChrtId: 2, TrackNumber: "TRACK_DI", Name: "X", Price: 1, TotalPrice: 1, NmId: 2, Status: 200 }}
-    err := env.R.OrderPostgres.CreateOrUpdate(o)
-    require.Error(t, err, "expected error on DELETE from items after drop")
+	o.Items = []models.Item{{ChrtId: 2, TrackNumber: "TRACK_DI", Name: "X", Price: 1, TotalPrice: 1, NmId: 2, Status: 200}}
+	err := env.R.OrderPostgres.CreateOrUpdate(o)
+	require.Error(t, err, "expected error on DELETE from items after drop")
 }
 
 func Test_CreateOrUpdate_UpdateBranch_CreateItems_Success(t *testing.T) {
-    env := upPostgres(t)
+	env := upPostgres(t)
 
-    o := order("uid_items_ok", "TRACK_OK", false)
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
+	o := order("uid_items_ok", "TRACK_OK", false)
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    o.Items = []models.Item{{
-        ChrtId:      123456,
-        TrackNumber: o.TrackNumber,
-        Price:       10,
-        Name:        "NewItem",
-        TotalPrice:  10,
-        NmId:        1,
-        Status:      200,
-    }}
-    require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
+	o.Items = []models.Item{{
+		ChrtId:      123456,
+		TrackNumber: o.TrackNumber,
+		Price:       10,
+		Name:        "NewItem",
+		TotalPrice:  10,
+		NmId:        1,
+		Status:      200,
+	}}
+	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    got, err := env.R.OrderPostgres.Get("uid_items_ok")
-    require.NoError(t, err)
-    require.Len(t, got.Items, 1)
-    require.Equal(t, 123456, got.Items[0].ChrtId)
-    require.Equal(t, "NewItem", got.Items[0].Name)
+	got, err := env.R.OrderPostgres.Get("uid_items_ok")
+	require.NoError(t, err)
+	require.Len(t, got.Items, 1)
+	require.Equal(t, 123456, got.Items[0].ChrtId)
+	require.Equal(t, "NewItem", got.Items[0].Name)
 }

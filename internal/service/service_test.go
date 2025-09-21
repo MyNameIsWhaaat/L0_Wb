@@ -30,8 +30,8 @@ func (p *pgStub) CreateOrUpdate(o models.Order) error { p.created = o; return p.
 func (p *pgStub) Get(string) (models.Order, error)    { return p.getResp, p.getErr }
 func (p *pgStub) GetAll() ([]models.Order, error)     { return p.getAllResp, p.getAllErr }
 
-type cacheStub struct { 
-	m map[string]models.Order 
+type cacheStub struct {
+	m        map[string]models.Order
 	putCount int
 }
 
@@ -52,7 +52,10 @@ func (c *cacheStub) GetAllOrders() ([]models.Order, error) {
 	return a, nil
 }
 
-type repoStub struct{ repository.OrderPostgres; repository.OrderCache }
+type repoStub struct {
+	repository.OrderPostgres
+	repository.OrderCache
+}
 
 func TestService_PutDbOrder_DelegatesToRepo(t *testing.T) {
 	p := &pgStub{}
@@ -63,9 +66,8 @@ func TestService_PutDbOrder_DelegatesToRepo(t *testing.T) {
 	require.Equal(t, in, p.created)
 }
 
-
 func TestService_GetDbOrder_OK(t *testing.T) {
-	p := &pgStub{ getResp: models.Order{OrderUid: "u1"} }
+	p := &pgStub{getResp: models.Order{OrderUid: "u1"}}
 	s := service.NewService(&repository.Repository{OrderPostgres: p, OrderCache: &cacheStub{}})
 
 	out, err := s.GetDbOrder("u1")
@@ -74,7 +76,7 @@ func TestService_GetDbOrder_OK(t *testing.T) {
 }
 
 func TestService_GetDbOrder_NotFound_Maps(t *testing.T) {
-	p := &pgStub{ getErr: gorm.ErrRecordNotFound }
+	p := &pgStub{getErr: gorm.ErrRecordNotFound}
 	s := service.NewService(&repository.Repository{OrderPostgres: p, OrderCache: &cacheStub{}})
 
 	_, err := s.GetDbOrder("nope")
@@ -102,9 +104,9 @@ func TestService_HandleMessage_Errors_And_FillsDate(t *testing.T) {
 }
 
 func TestHandleMessage(t *testing.T) {
-	ord := models.Order{OrderUid:"u1", DateCreated: time.Now().UTC()}
+	ord := models.Order{OrderUid: "u1", DateCreated: time.Now().UTC()}
 	b, _ := json.Marshal(ord)
-	r := &repoStub{OrderPostgres:&pgStub{}, OrderCache:&cacheStub{}}
+	r := &repoStub{OrderPostgres: &pgStub{}, OrderCache: &cacheStub{}}
 	s := service.NewService(&repository.Repository{OrderPostgres: r.OrderPostgres, OrderCache: r.OrderCache})
 
 	if err := s.HandleMessage(context.Background(), b); err != nil {
@@ -143,7 +145,7 @@ func TestService_DbMethods(t *testing.T) {
 }
 
 func TestService_PutOrdersFromDbToCache_PropagatesError(t *testing.T) {
-	p := &pgStub{ getAllErr: fmt.Errorf("db fail") }
+	p := &pgStub{getAllErr: fmt.Errorf("db fail")}
 	c := &cacheStub{}
 	s := service.NewService(&repository.Repository{OrderPostgres: p, OrderCache: c})
 
@@ -157,7 +159,7 @@ func TestService_PutOrdersFromDbToCache_PutsAll(t *testing.T) {
 	orders := []models.Order{
 		{OrderUid: "u1"}, {OrderUid: "u2"}, {OrderUid: "u3"},
 	}
-	p := &pgStub{ getAllResp: orders }
+	p := &pgStub{getAllResp: orders}
 	c := &cacheStub{}
 	s := service.NewService(&repository.Repository{OrderPostgres: p, OrderCache: c})
 
@@ -170,11 +172,11 @@ func TestService_PutOrdersFromDbToCache_PutsAll(t *testing.T) {
 }
 
 func TestService_HandleMessage_CreateOrUpdate_Error(t *testing.T) {
-	p := &pgStub{ createOrUpdateErr: fmt.Errorf("write failed") }
+	p := &pgStub{createOrUpdateErr: fmt.Errorf("write failed")}
 	c := &cacheStub{}
 	s := service.NewService(&repository.Repository{OrderPostgres: p, OrderCache: c})
 
-	msg := models.Order{ OrderUid: "u_err" }
+	msg := models.Order{OrderUid: "u_err"}
 	b, _ := json.Marshal(msg)
 
 	err := s.HandleMessage(context.Background(), b)
