@@ -5,6 +5,7 @@ import (
 	"l0-demo/internal/repository/cache"
 	"l0-demo/internal/service"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,16 +24,26 @@ import (
 // @Router /api/order/{uid} [get]
 
 func (h *Handler) GetOrderById(c *gin.Context) {
-	uid := c.Param("uid")
+	uid := strings.TrimSpace(c.Param("uid"))
+	if uid == "" {
+		newErrorResponse(c, http.StatusBadRequest, "invalid uid")
+		return
+	}
+
 	order, err := h.svc.GetCachedOrder(uid)
-	if err != nil { 
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			newErrorResponse(c, http.StatusNotFound, "not found")
+			return
+		}
 		if val, ok := err.(cache.ErrorHandler); ok {
 			newErrorResponse(c, val.StatusCode, err.Error())
 			return
-		} 
+		}
 		newErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	c.JSON(http.StatusOK, order)
 }
 
@@ -49,7 +60,7 @@ func (h *Handler) GetOrderById(c *gin.Context) {
 // @Failure default {object} errorResponse
 // @Router /api/order/db/{uid} [get]
 func (h *Handler) GetDbOrderById(c *gin.Context) {
-	uid := c.Param("uid")
+	uid := strings.TrimSpace(c.Param("uid"))
 	if uid == "" {
 		newErrorResponse(c, http.StatusBadRequest, "missing uid")
 		return
