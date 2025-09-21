@@ -73,24 +73,23 @@ func (o *OrderPostgresRepo) Get(uid string) (models.Order, error) {
 func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 
 	ord.Delivery.OrderRefer = ord.OrderUid
-	ord.Payment.OrderRefer  = ord.OrderUid
+	ord.Payment.OrderRefer = ord.OrderUid
 	for i := range ord.Items {
 		ord.Items[i].OrderRefer = ord.OrderUid
 	}
 
 	return o.db.Transaction(func(tx *gorm.DB) error {
-	
+
 		var existing models.Order
 		err := tx.Where("order_uid = ?", ord.OrderUid).First(&existing).Error
 		if gorm.IsRecordNotFoundError(err) {
-			
+
 			return tx.Create(&ord).Error
 		}
 		if err != nil {
 			return err
 		}
 
-	
 		if err := tx.Model(&models.Order{}).
 			Where("order_uid = ?", ord.OrderUid).
 			Updates(map[string]interface{}{
@@ -100,7 +99,7 @@ func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 				"internal_signature": ord.InternalSignature,
 				"customer_id":        ord.CustomerId,
 				"delivery_service":   ord.DeliveryService,
-				"shard_key":           ord.ShardKey,
+				"shard_key":          ord.ShardKey,
 				"sm_id":              ord.SmId,
 				"date_created":       ord.DateCreated,
 				"oof_shard":          ord.OofShard,
@@ -108,7 +107,6 @@ func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 			return err
 		}
 
-	
 		if err := tx.Model(&models.Delivery{}).
 			Where("order_refer = ?", ord.OrderUid).
 			Updates(ord.Delivery).Error; err != nil {
@@ -120,13 +118,14 @@ func (o *OrderPostgresRepo) CreateOrUpdate(ord models.Order) error {
 			return err
 		}
 
-
 		if err := tx.Where("order_refer = ?", ord.OrderUid).Delete(&models.Item{}).Error; err != nil {
 			return err
 		}
 		if len(ord.Items) > 0 {
-			if err := tx.Create(&ord.Items).Error; err != nil {
-				return err
+			for i := range ord.Items {
+				if err := tx.Create(&ord.Items[i]).Error; err != nil {
+					return err
+				}
 			}
 		}
 		return nil
