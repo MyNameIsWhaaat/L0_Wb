@@ -5,6 +5,8 @@ import (
 
 	"l0-demo/internal/models"
 	"l0-demo/internal/repository"
+
+	"github.com/go-playground/validator/v10"
 )
 
 //go:generate mockgen -source=service.go -destination=mocks/mock.go
@@ -24,11 +26,14 @@ type Order interface {
 type Service struct {
 	repository.OrderCache
 	repository.OrderPostgres
+	v *validator.Validate
 }
 
 func NewService(repository *repository.Repository) *Service {
+	validator := validator.New()
 	return &Service{
 		OrderCache:    repository.OrderCache,
 		OrderPostgres: repository.OrderPostgres,
+		v:             validator,
 	}
 }

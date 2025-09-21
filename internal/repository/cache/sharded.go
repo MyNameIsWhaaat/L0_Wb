@@ -90,7 +90,7 @@ func (c *ShardedCache) Get(key string) (any, bool) {
 		return nil, false
 	}
 	if !e.E.IsZero() && c.now().After(e.E) {
-	
+
 		s.mu.Lock()
 		if cur, ok := s.data[key]; ok && cur.E == e.E {
 			delete(s.data, key)
@@ -107,7 +107,7 @@ func (c *ShardedCache) Delete(key string) {
 	delete(s.data, key)
 	s.mu.Unlock()
 }
- 
+
 func (c *ShardedCache) Snapshot() map[string]any {
 	out := make(map[string]any)
 	now := c.now()

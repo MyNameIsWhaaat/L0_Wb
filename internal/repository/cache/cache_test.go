@@ -40,7 +40,7 @@ func TestErrorHandler_ErrorString(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, e.StatusCode)
 }
 
-func TestOrderCache_GetOrder_ConvertError_500(t *testing.T) { 
+func TestOrderCache_GetOrder_ConvertError_500(t *testing.T) {
 	base := cache.NewCache()
 	base.Put("bad", "not-an-order")
 
@@ -51,7 +51,7 @@ func TestOrderCache_GetOrder_ConvertError_500(t *testing.T) {
 	eh, ok := err.(cache.ErrorHandler)
 	require.True(t, ok, "err should be cache.ErrorHandler")
 	require.Equal(t, http.StatusInternalServerError, eh.StatusCode)
-	require.Contains(t, eh.Error(), "failed to convert order") 
+	require.Contains(t, eh.Error(), "failed to convert order")
 }
 
 func TestOrderCache_GetAll_Empty_OK(t *testing.T) {
@@ -63,8 +63,8 @@ func TestOrderCache_GetAll_Empty_OK(t *testing.T) {
 }
 
 func TestOrderCache_GetAll_ConvertError_500(t *testing.T) {
-	base := cache.NewCache() 
-	base.Put("u1", models.Order{OrderUid: "u1"}) 
+	base := cache.NewCache()
+	base.Put("u1", models.Order{OrderUid: "u1"})
 	base.Put("oops", 12345)
 
 	cch := cache.NewOrderCache(base)
@@ -83,7 +83,7 @@ func TestOrderCache_Delete_RemovesKey(t *testing.T) {
 
 	o := models.Order{OrderUid: "to_del"}
 	cch.PutOrder(o.OrderUid, o)
- 
+
 	cch.Delete("to_del")
 
 	_, err := cch.GetOrder("to_del")
@@ -94,43 +94,43 @@ func TestOrderCache_Delete_RemovesKey(t *testing.T) {
 }
 
 func TestCache_WithTTL_JanitorAndClose(t *testing.T) {
-    ttl := 30 * time.Millisecond
-    c := cache.NewCache(cache.WithTTL(ttl))
-    defer c.Close()
+	ttl := 30 * time.Millisecond
+	c := cache.NewCache(cache.WithTTL(ttl))
+	defer c.Close()
 
-    c.Put("k", 1)
-    _, ok := c.Get("k")
-    require.True(t, ok)
+	c.Put("k", 1)
+	_, ok := c.Get("k")
+	require.True(t, ok)
 
-    time.Sleep(ttl + ttl/2 + 20*time.Millisecond)
+	time.Sleep(ttl + ttl/2 + 20*time.Millisecond)
 
-    snap := c.Snapshot()
-    _, present := snap["k"]
-    require.False(t, present)
+	snap := c.Snapshot()
+	_, present := snap["k"]
+	require.False(t, present)
 }
 
 func TestCache_WithNoJanitor_Close_NoTicker(t *testing.T) {
-    c := cache.NewCache(cache.WithNoJanitor())
-    defer c.Close()
+	c := cache.NewCache(cache.WithNoJanitor())
+	defer c.Close()
 
-    c.Put("a", 1)
-    time.Sleep(20 * time.Millisecond)
+	c.Put("a", 1)
+	time.Sleep(20 * time.Millisecond)
 
-    snap := c.Snapshot()
-    _, present := snap["a"]
-    require.True(t, present)
+	snap := c.Snapshot()
+	_, present := snap["a"]
+	require.True(t, present)
 }
 
 func TestCache_WithNoJanitor_ThenTTL_TickerStarts(t *testing.T) {
-    ttl := 15 * time.Millisecond
-    c := cache.NewCache(cache.WithNoJanitor(), cache.WithTTL(ttl))
-    defer c.Close()
+	ttl := 15 * time.Millisecond
+	c := cache.NewCache(cache.WithNoJanitor(), cache.WithTTL(ttl))
+	defer c.Close()
 
-    c.Put("x", 42)
-    time.Sleep(ttl + ttl/2 + 20*time.Millisecond)
+	c.Put("x", 42)
+	time.Sleep(ttl + ttl/2 + 20*time.Millisecond)
 
-    _, ok := c.Get("x")
-    require.False(t, ok)
+	_, ok := c.Get("x")
+	require.False(t, ok)
 }
 
 func TestCache_Get_WrappedValue_ReturnsUnderlying(t *testing.T) {

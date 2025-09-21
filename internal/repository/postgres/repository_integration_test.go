@@ -1,264 +1,583 @@
 package postgres_test
 
 import (
+	"fmt"
+	"log"
+	"os"
 	"testing"
 	"time"
 
-	gorm "github.com/jinzhu/gorm"
-	"github.com/ory/dockertest/v3"
-	"github.com/stretchr/testify/require"
-
 	"l0-demo/internal/models"
-	repo "l0-demo/internal/repository"
-	pg "l0-demo/internal/repository/postgres"
+	pgrepo "l0-demo/internal/repository/postgres"
+
+	"github.com/jinzhu/gorm"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
+	"github.com/ory/dockertest/v3"
+	"github.com/ory/dockertest/v3/docker"
 )
 
-type pgEnv struct {
-	pool     *dockertest.Pool
-	resource *dockertest.Resource
-	DB       *gorm.DB
-	R        *repo.Repository
+const (
+	dbUser = "postgres"
+	dbPass = "secret"
+	dbName = "testdb"
+)
+
+var (
+	db   *gorm.DB
+	repo *pgrepo.OrderPostgresRepo
+)
+
+func trunc(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
-func upPostgres(t *testing.T) *pgEnv {
+func addCheckNotValid(t *testing.T, table, cname, condition string) {
 	t.Helper()
-
-	pool, err := dockertest.NewPool("")
-	require.NoError(t, err)
-
-	resource, err := pool.Run("postgres", "16-alpine", []string{
-		"POSTGRES_DB=orders",
-		"POSTGRES_USER=app",
-		"POSTGRES_PASSWORD=app",
-	})
-	require.NoError(t, err)
-
-	env := &pgEnv{pool: pool, resource: resource}
-	t.Cleanup(func() { _ = pool.Purge(resource) })
-
-	require.NoError(t, pool.Retry(func() error {
-		hostPort := resource.GetPort("5432/tcp")
-		db, err := pg.ConnectDB(pg.Config{
-			Host:     "localhost",
-			Port:     hostPort,
-			Username: "app",
-			Password: "app",
-			DbName:   "orders",
-			SslMode:  "disable",
-		})
-		if err != nil {
-			return err
-		}
-		env.DB = db
-
-		if err := db.AutoMigrate(&models.Order{}, &models.Delivery{}, &models.Payment{}, &models.Item{}).Error; err != nil {
-			return err
-		}
-
-		env.R = repo.NewRepository(db)
-		return nil
-	}))
-
-	return env
+	q := fmt.Sprintf(`ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s) NOT VALID;`, table, cname, condition)
+	if err := db.Exec(q).Error; err != nil {
+		t.Fatalf("addCheckNotValid failed: %v\nquery: %s", err, q)
+	}
 }
 
-func order(uid, track string, withItems bool) models.Order {
-	o := models.Order{
-		OrderUid:        uid,
-		TrackNumber:     track,
-		Entry:           "ENT",
-		Locale:          "en",
-		CustomerId:      "cust",
-		DeliveryService: "meest",
-		ShardKey:        "1",
-		SmId:            10,
-		DateCreated:     time.Now().UTC(),
-		OofShard:        "1",
-		Delivery: models.Delivery{
-			Name: "User",
-		},
-		Payment: models.Payment{
-			Transaction:  uid,
-			Currency:     "USD",
-			Provider:     "pay",
-			Amount:       100,
-			PaymentDt:    123,
-			Bank:         "bank",
-			DeliveryCost: 10,
-			GoodsTotal:   90,
-		},
+func TestMain(m *testing.M) {
+	pool, err := dockertest.NewPool("")
+	if err != nil {
+		log.Fatalf("could not connect to docker: %v", err)
 	}
-	if withItems {
-		o.Items = []models.Item{{
-			ChrtId:      1,
-			TrackNumber: track,
-			Price:       90,
-			Rid:         "rid1",
-			Name:        "Item1",
-			Sale:        0,
-			Size:        "M",
-			TotalPrice:  90,
-			NmId:        1,
-			Brand:       "Brand1",
-			Status:      200,
-		}}
-	} else {
-		o.Items = []models.Item{}
+
+	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "postgres",
+		Tag:        "13-alpine",
+		Env: []string{
+			"POSTGRES_PASSWORD=" + dbPass,
+			"POSTGRES_USER=" + dbUser,
+			"POSTGRES_DB=" + dbName,
+		},
+	}, func(hc *docker.HostConfig) {
+
+		hc.AutoRemove = true
+		hc.RestartPolicy = docker.RestartPolicy{Name: "no"}
+	})
+	if err != nil {
+		log.Fatalf("could not start resource: %v", err)
 	}
+
+	defer func() {
+		_ = pool.Purge(resource)
+	}()
+
+	hostPort := resource.GetPort("5432/tcp")
+
+	var g *gorm.DB
+	if err := pool.Retry(func() error {
+		var e error
+		connStr := fmt.Sprintf("host=localhost port=%s user=%s dbname=%s password=%s sslmode=disable",
+			hostPort, dbUser, dbName, dbPass)
+		g, e = gorm.Open("postgres", connStr)
+		if e != nil {
+			return e
+		}
+		return g.DB().Ping()
+	}); err != nil {
+		log.Fatalf("could not connect to postgres: %v", err)
+	}
+
+	g.DB().SetMaxOpenConns(10)
+	g.DB().SetMaxIdleConns(5)
+	g.DB().SetConnMaxLifetime(time.Minute)
+
+	if err := g.AutoMigrate(
+		&models.Order{},
+		&models.Delivery{},
+		&models.Payment{},
+		&models.Item{},
+	).Error; err != nil {
+		log.Fatalf("auto-migrate failed: %v", err)
+	}
+
+	db = g
+	repo = pgrepo.NewOrderPostgres(db)
+
+	code := m.Run()
+
+	_ = db.Close()
+	os.Exit(code)
+}
+
+func TestCreateAndGet(t *testing.T) {
+	uid := "order-create-001"
+	in := makeOrderFull(uid, 2)
+
+	if err := repo.Create(in); err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+
+	got, err := repo.Get(uid)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+
+	assertOrderHeaderEq(t, in, got)
+	if got.Delivery == nil || got.Payment == nil {
+		t.Fatalf("expected non-nil Delivery and Payment, got: %#v", got)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(got.Items))
+	}
+}
+
+func TestCreateOrUpdate_InsertThenUpdate(t *testing.T) {
+	uid := "order-upsert-001"
+
+	initial := makeOrderFull(uid, 3)
+	if err := repo.CreateOrUpdate(initial); err != nil {
+		t.Fatalf("CreateOrUpdate(insert) error: %v", err)
+	}
+
+	got1, err := repo.Get(uid)
+	if err != nil {
+		t.Fatalf("Get(after insert) error: %v", err)
+	}
+	assertOrderHeaderEq(t, initial, got1)
+	if len(got1.Items) != 3 {
+		t.Fatalf("expected 3 items after insert, got %d", len(got1.Items))
+	}
+
+	updated := initial
+	updated.TrackNumber = "TRACK-UPDATED"
+	if updated.Delivery != nil {
+		updated.Delivery.City = "Amsterdam"
+	}
+	if updated.Payment != nil {
+		updated.Payment.Amount = updated.Payment.Amount + 777
+	}
+	updated.Items = []models.Item{
+		makeItem(uid, "SKU-NEW-1", 111),
+		makeItem(uid, "SKU-NEW-2", 222),
+	}
+
+	if err := repo.CreateOrUpdate(updated); err != nil {
+		t.Fatalf("CreateOrUpdate(update) error: %v", err)
+	}
+
+	got2, err := repo.Get(uid)
+	if err != nil {
+		t.Fatalf("Get(after update) error: %v", err)
+	}
+
+	if got2.TrackNumber != "TRACK-UPDATED" {
+		t.Fatalf("expected updated track number, got %s", got2.TrackNumber)
+	}
+	if got2.Delivery == nil || got2.Delivery.City != "Amsterdam" {
+		t.Fatalf("delivery not updated: %#v", got2.Delivery)
+	}
+	if got2.Payment == nil || got2.Payment.Amount != updated.Payment.Amount {
+		t.Fatalf("payment not updated: %#v", got2.Payment)
+	}
+	if len(got2.Items) != 2 {
+		t.Fatalf("expected 2 items after replacement, got %d", len(got2.Items))
+	}
+	expectRIDs := map[string]bool{"SKU-NEW-1": true, "SKU-NEW-2": true}
+	for _, it := range got2.Items {
+		if !expectRIDs[it.Rid] {
+			t.Fatalf("unexpected item after replacement (Rid check failed): %#v", it)
+		}
+	}
+}
+
+func TestCreateOrUpdate_WithNilChildren(t *testing.T) {
+	uid := "order-nil-001"
+
+	o := makeOrderHeaderOnly(uid)
+	if err := repo.CreateOrUpdate(o); err != nil {
+		t.Fatalf("CreateOrUpdate(header-only) error: %v", err)
+	}
+
+	got, err := repo.Get(uid)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Delivery != nil || got.Payment != nil || len(got.Items) != 0 {
+		t.Fatalf("expected no children, got: delivery=%#v payment=%#v items=%d",
+			got.Delivery, got.Payment, len(got.Items))
+	}
+
+	o2 := makeOrderFull(uid, 1)
+	if err := repo.CreateOrUpdate(o2); err != nil {
+		t.Fatalf("CreateOrUpdate(add-children) error: %v", err)
+	}
+
+	got2, err := repo.Get(uid)
+	if err != nil {
+		t.Fatalf("Get(after add children) error: %v", err)
+	}
+	if got2.Delivery == nil || got2.Payment == nil || len(got2.Items) != 1 {
+		t.Fatalf("expected children added, got: delivery=%#v payment=%#v items=%d",
+			got2.Delivery, got2.Payment, len(got2.Items))
+	}
+}
+
+func TestGetAll(t *testing.T) {
+	for i := 1; i <= 3; i++ {
+		uid := fmt.Sprintf("order-all-%03d", i)
+		if err := repo.Create(makeOrderFull(uid, i)); err != nil {
+			t.Fatalf("Create(%s) error: %v", uid, err)
+		}
+	}
+
+	all, err := repo.GetAll()
+	if err != nil {
+		t.Fatalf("GetAll() error: %v", err)
+	}
+	count := 0
+	for _, o := range all {
+		if len(o.OrderUid) > 0 && (len(o.Items) > 0 || o.Delivery != nil || o.Payment != nil) {
+			count++
+		}
+	}
+	if count < 3 {
+		t.Fatalf("expected at least 3 orders, got %d/%d", count, len(all))
+	}
+}
+
+func assertOrderHeaderEq(t *testing.T, want, got models.Order) {
+	t.Helper()
+	type header = struct {
+		OrderUid          string
+		TrackNumber       string
+		Entry             string
+		Locale            string
+		InternalSignature string
+		CustomerId        string
+		DeliveryService   string
+		ShardKey          string
+		SmId              int
+		OofShard          string
+	}
+	w := header{
+		OrderUid:          want.OrderUid,
+		TrackNumber:       want.TrackNumber,
+		Entry:             want.Entry,
+		Locale:            want.Locale,
+		InternalSignature: want.InternalSignature,
+		CustomerId:        want.CustomerId,
+		DeliveryService:   want.DeliveryService,
+		ShardKey:          want.ShardKey,
+		SmId:              want.SmId,
+		OofShard:          want.OofShard,
+	}
+	g := header{
+		OrderUid:          got.OrderUid,
+		TrackNumber:       got.TrackNumber,
+		Entry:             got.Entry,
+		Locale:            got.Locale,
+		InternalSignature: got.InternalSignature,
+		CustomerId:        got.CustomerId,
+		DeliveryService:   got.DeliveryService,
+		ShardKey:          got.ShardKey,
+		SmId:              got.SmId,
+		OofShard:          got.OofShard,
+	}
+	if w != g {
+		t.Fatalf("order header mismatch:\nwant: %#v\ngot:  %#v", w, g)
+	}
+}
+
+func makeOrderHeaderOnly(uid string) models.Order {
+	return models.Order{
+		OrderUid:          uid,
+		TrackNumber:       "TRACK-" + uid,
+		Entry:             "web",
+		Locale:            "ru",
+		InternalSignature: "",
+		CustomerId:        "customer-1",
+		DeliveryService:   "meest",
+		ShardKey:          "9",
+		SmId:              123,
+		DateCreated:       time.Now().UTC(),
+		OofShard:          "1",
+	}
+}
+
+func makeOrderFull(uid string, items int) models.Order {
+	o := makeOrderHeaderOnly(uid)
+
+	o.Delivery = &models.Delivery{
+		OrderRefer: uid,
+		Name:       "John Doe",
+		Phone:      "+100000000",
+		Zip:        "000000",
+		City:       "Moscow",
+		Address:    "Some street, 1",
+		Region:     "RU",
+		Email:      "john@example.com",
+	}
+	o.Payment = &models.Payment{
+		OrderRefer:   uid,
+		Transaction:  "txn-" + trunc(uid, 15),
+		Currency:     "RUB",
+		Provider:     "cash",
+		Amount:       1000,
+		PaymentDt:    int(time.Now().Unix()),
+		Bank:         "SBER",
+		DeliveryCost: 300,
+		GoodsTotal:   700,
+		CustomFee:    0,
+	}
+	for i := 1; i <= items; i++ {
+		o.Items = append(o.Items, makeItem(uid, fmt.Sprintf("SKU-%02d", i), 100*i))
+	}
+
 	return o
 }
 
-func Test_Postgres_CreateUpdateGet_GetAll_Positive(t *testing.T) {
-	env := upPostgres(t)
-
-	o1 := order("uid_1", "TRACK1", true)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o1))
-
-	got, err := env.R.OrderPostgres.Get("uid_1")
-	require.NoError(t, err)
-	require.Equal(t, "uid_1", got.OrderUid)
-	require.Len(t, got.Items, 1)
-	require.Equal(t, "Item1", got.Items[0].Name)
-
-	o1.Items = []models.Item{}
-	o1.Delivery.Name = "Updated User"
-	o1.Payment.Amount = 2000
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o1))
-
-	got2, err := env.R.OrderPostgres.Get("uid_1")
-	require.NoError(t, err)
-	require.Equal(t, "Updated User", got2.Delivery.Name)
-	require.Equal(t, 2000, got2.Payment.Amount)
-	require.Len(t, got2.Items, 0)
-
-	o2 := order("uid_2", "TRACK2", false)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o2))
-
-	all, err := env.R.OrderPostgres.GetAll()
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(all), 2)
-
-	require.NoError(t, env.DB.Where("order_uid = ?", "uid_1").Delete(&models.Order{}).Error)
-	_, err = env.R.OrderPostgres.Get("uid_1")
-	require.Error(t, err)
-}
-
-func Test_Postgres_Create_DuplicateUID_Error(t *testing.T) {
-	env := upPostgres(t)
-
-	o := order("dup_uid", "TRACKDUP", true)
-
-	require.NoError(t, env.R.OrderPostgres.Create(o))
-
-	err := env.R.OrderPostgres.Create(o)
-	require.Error(t, err, "expected duplicate key error from Create")
-}
-
-func Test_Postgres_CreateOrUpdate_ItemsInsertError(t *testing.T) {
-	env := upPostgres(t)
-
-	if err := env.DB.DropTable(&models.Item{}).Error; err != nil {
-		t.Fatalf("failed to drop items table: %v", err)
-	}
-
-	o := order("uid_items_err", "TRACK_ERR", true)
-
-	err := env.R.OrderPostgres.CreateOrUpdate(o)
-	require.Error(t, err, "expected error because items table is missing")
-}
-
-func Test_Postgres_GetAll_Empty_OK(t *testing.T) {
-	env := upPostgres(t)
-
-	all, err := env.R.OrderPostgres.GetAll()
-	require.NoError(t, err)
-	require.Len(t, all, 0)
-}
-
-func Test_CreateOrUpdate_CreateBranch_CreateError(t *testing.T) {
-	env := upPostgres(t)
-
-	require.NoError(t, env.DB.DropTable(&models.Order{}).Error)
-
-	o := order("uid_new", "TRACK_NEW", true)
-	err := env.R.OrderPostgres.CreateOrUpdate(o)
-	require.Error(t, err, "expected error from tx.Create(&ord) on missing table")
-}
-
-func Test_CreateOrUpdate_UpdateBranch_OrderUpdatesError_UniqueTrack(t *testing.T) {
-	env := upPostgres(t)
-
-	require.NoError(t, env.DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_track ON orders (track_number)`).Error)
-
-	a := order("uid_A", "TRACK_A", false)
-	b := order("uid_B", "TRACK_B", false)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(a))
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(b))
-
-	a.TrackNumber = "TRACK_B"
-	err := env.R.OrderPostgres.CreateOrUpdate(a)
-	require.Error(t, err, "expected unique constraint violation on orders(track_number)")
-}
-
-func Test_CreateOrUpdate_UpdateBranch_DeliveryUpdatesError_DroppedTable(t *testing.T) {
-	env := upPostgres(t)
-
-	o := order("uid_del_upd", "TRACK_DEL", false)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
-
-	require.NoError(t, env.DB.DropTable(&models.Delivery{}).Error)
-
-	o.Delivery.Name = "New Name"
-	err := env.R.OrderPostgres.CreateOrUpdate(o)
-	require.Error(t, err, "expected error updating deliveries after table drop")
-}
-
-func Test_CreateOrUpdate_UpdateBranch_PaymentUpdatesError_DroppedTable(t *testing.T) {
-	env := upPostgres(t)
-
-	o := order("uid_pay_upd", "TRACK_PAY", false)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
-
-	require.NoError(t, env.DB.DropTable(&models.Payment{}).Error)
-
-	o.Payment.Amount = 777
-	err := env.R.OrderPostgres.CreateOrUpdate(o)
-	require.Error(t, err, "expected error updating payments after table drop")
-}
-
-func Test_CreateOrUpdate_UpdateBranch_DeleteItemsError_DroppedTable(t *testing.T) {
-	env := upPostgres(t)
-
-	o := order("uid_del_items", "TRACK_DI", true)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
-
-	require.NoError(t, env.DB.DropTable(&models.Item{}).Error)
-
-	o.Items = []models.Item{{ChrtId: 2, TrackNumber: "TRACK_DI", Name: "X", Price: 1, TotalPrice: 1, NmId: 2, Status: 200}}
-	err := env.R.OrderPostgres.CreateOrUpdate(o)
-	require.Error(t, err, "expected error on DELETE from items after drop")
-}
-
-func Test_CreateOrUpdate_UpdateBranch_CreateItems_Success(t *testing.T) {
-	env := upPostgres(t)
-
-	o := order("uid_items_ok", "TRACK_OK", false)
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
-
-	o.Items = []models.Item{{
-		ChrtId:      123456,
-		TrackNumber: o.TrackNumber,
-		Price:       10,
-		Name:        "NewItem",
-		TotalPrice:  10,
+func makeItem(orderUID, sku string, price int) models.Item {
+	return models.Item{
+		OrderRefer:  orderUID,
+		ChrtId:      1000 + price,
+		TrackNumber: "TN-" + trunc(orderUID, 16),
+		Price:       price,
+		Rid:         sku,
+		Name:        "Item " + sku,
+		Sale:        0,
+		Size:        "0",
+		TotalPrice:  price,
 		NmId:        1,
-		Status:      200,
-	}}
-	require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
+		Brand:       "WB",
+		Status:      202,
+	}
+}
 
-	got, err := env.R.OrderPostgres.Get("uid_items_ok")
-	require.NoError(t, err)
-	require.Len(t, got.Items, 1)
-	require.Equal(t, 123456, got.Items[0].ChrtId)
-	require.Equal(t, "NewItem", got.Items[0].Name)
+func execSQL(t *testing.T, q string) {
+	t.Helper()
+	if err := db.Exec(q).Error; err != nil {
+		t.Fatalf("execSQL failed: %v\nquery: %s", err, q)
+	}
+}
+
+func remigrate(t *testing.T) {
+	t.Helper()
+	if err := db.AutoMigrate(
+		&models.Order{},
+		&models.Delivery{},
+		&models.Payment{},
+		&models.Item{},
+	).Error; err != nil {
+		t.Fatalf("remigrate failed: %v", err)
+	}
+}
+
+func TestErrorPaths_Coverage(t *testing.T) {
+	t.Run("CreateOrUpdate_count_error", func(t *testing.T) {
+		execSQL(t, `DROP TABLE IF EXISTS orders CASCADE;`)
+		err := repo.CreateOrUpdate(makeOrderHeaderOnly("err-count-001"))
+		if err == nil {
+			t.Fatalf("expected error from Count/orders, got nil")
+		}
+		remigrate(t)
+	})
+
+	t.Run("CreateOrUpdate_delivery_create_error", func(t *testing.T) {
+		uid := "err-delivery-01"
+		if err := repo.CreateOrUpdate(makeOrderHeaderOnly(uid)); err != nil {
+			t.Fatalf("prep header failed: %v", err)
+		}
+		execSQL(t, `DROP TABLE IF EXISTS deliveries CASCADE;`)
+		o := makeOrderFull(uid, 0)
+		o.Items = nil
+		if o.Payment != nil {
+			o.Payment = nil
+		}
+		err := repo.CreateOrUpdate(o)
+		if err == nil {
+			t.Fatalf("expected error from Delivery create, got nil")
+		}
+		remigrate(t)
+	})
+
+	t.Run("CreateOrUpdate_payment_create_error", func(t *testing.T) {
+		uid := "err-payment-01"
+		if err := repo.CreateOrUpdate(makeOrderHeaderOnly(uid)); err != nil {
+			t.Fatalf("prep header failed: %v", err)
+		}
+		execSQL(t, `DROP TABLE IF EXISTS payments CASCADE;`)
+		o := makeOrderFull(uid, 0)
+		o.Items = nil
+		o.Delivery = nil
+		err := repo.CreateOrUpdate(o)
+		if err == nil {
+			t.Fatalf("expected error from Payment create, got nil")
+		}
+		remigrate(t)
+	})
+
+	t.Run("CreateOrUpdate_items_delete_error", func(t *testing.T) {
+		uid := "err-items-del-01"
+
+		if err := repo.CreateOrUpdate(makeOrderHeaderOnly(uid)); err != nil {
+			t.Fatalf("prep header failed: %v", err)
+		}
+		execSQL(t, `DROP TABLE IF EXISTS items CASCADE;`)
+		o := makeOrderFull(uid, 2)
+		err := repo.CreateOrUpdate(o)
+		if err == nil {
+			t.Fatalf("expected error from Items delete, got nil")
+		}
+		remigrate(t)
+	})
+
+	t.Run("Get_error", func(t *testing.T) {
+		execSQL(t, `DROP TABLE IF EXISTS orders CASCADE;`)
+		_, err := repo.Get("nope")
+		if err == nil {
+			t.Fatalf("expected error from Get with missing orders table, got nil")
+		}
+		remigrate(t)
+	})
+
+	t.Run("GetAll_error", func(t *testing.T) {
+		execSQL(t, `DROP TABLE IF EXISTS orders CASCADE;`)
+		_, err := repo.GetAll()
+		if err == nil {
+			t.Fatalf("expected error from GetAll with missing orders table, got nil")
+		}
+		remigrate(t)
+	})
+}
+
+func addCheck(t *testing.T, table, cname, condition string) {
+	t.Helper()
+	q := fmt.Sprintf(`ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s);`, table, cname, condition)
+	if err := db.Exec(q).Error; err != nil {
+		t.Fatalf("addCheck failed: %v\nquery: %s", err, q)
+	}
+}
+
+func dropCheck(t *testing.T, table, cname string) {
+	t.Helper()
+	q := fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;`, table, cname)
+	if err := db.Exec(q).Error; err != nil {
+		t.Fatalf("dropCheck failed: %v\nquery: %s", err, q)
+	}
+}
+
+func remigrateClean(t *testing.T) {
+	t.Helper()
+	_ = db.Exec(`DROP TABLE IF EXISTS items CASCADE;`).Error
+	_ = db.Exec(`DROP TABLE IF EXISTS deliveries CASCADE;`).Error
+	_ = db.Exec(`DROP TABLE IF EXISTS payments CASCADE;`).Error
+	_ = db.Exec(`DROP TABLE IF EXISTS orders CASCADE;`).Error
+
+	if err := db.AutoMigrate(
+		&models.Order{},
+		&models.Delivery{},
+		&models.Payment{},
+		&models.Item{},
+	).Error; err != nil {
+		t.Fatalf("remigrateClean failed: %v", err)
+	}
+}
+
+func TestErrorCoverage_Targeted(t *testing.T) {
+	remigrateClean(t)
+
+	t.Run("Create_header_fails_on_check", func(t *testing.T) {
+		addCheck(t, "orders", "chk_hdr_uid_len", "char_length(order_uid) <= 5")
+		defer dropCheck(t, "orders", "chk_hdr_uid_len")
+
+		o := makeOrderHeaderOnly("abcdef-long")
+		err := repo.CreateOrUpdate(o)
+		if err == nil {
+			t.Fatalf("expected error from tx.Create(&hdr), got nil")
+		}
+	})
+
+	t.Run("Delivery_create_fails_on_check", func(t *testing.T) {
+		uid := "dlv-cr-01"
+		if err := repo.CreateOrUpdate(makeOrderHeaderOnly(uid)); err != nil {
+			t.Fatalf("prep order header failed: %v", err)
+		}
+		addCheck(t, "deliveries", "chk_city_len_le_1", "char_length(city) <= 1")
+		defer dropCheck(t, "deliveries", "chk_city_len_le_1")
+
+		o := makeOrderFull(uid, 0)
+		o.Items = nil
+		o.Payment = nil
+
+		err := repo.CreateOrUpdate(o)
+		if err == nil {
+			t.Fatalf("expected error from Delivery Create, got nil")
+		}
+	})
+
+	t.Run("Delivery_update_fails_on_check", func(t *testing.T) {
+		uid := "dlv-upd-01"
+
+		o1 := makeOrderFull(uid, 0)
+		o1.Items = nil
+		o1.Payment = nil
+		if err := repo.CreateOrUpdate(o1); err != nil {
+			t.Fatalf("prep delivery initial failed: %v", err)
+		}
+
+		addCheckNotValid(t, "deliveries", "chk_city_len_le_1_u", "char_length(city) <= 1")
+		defer dropCheck(t, "deliveries", "chk_city_len_le_1_u")
+
+		o2 := makeOrderFull(uid, 0)
+		o2.Items = nil
+		o2.Payment = nil
+		if o2.Delivery != nil {
+			o2.Delivery.City = "Amsterdam"
+		}
+		err := repo.CreateOrUpdate(o2)
+		if err == nil {
+			t.Fatalf("expected error from Delivery Updates, got nil")
+		}
+	})
+
+	t.Run("Payment_create_fails_on_check", func(t *testing.T) {
+		uid := "pay-cr-01"
+		if err := repo.CreateOrUpdate(makeOrderHeaderOnly(uid)); err != nil {
+			t.Fatalf("prep order header failed: %v", err)
+		}
+
+		addCheck(t, "payments", "chk_amount_negative", "amount < 0")
+		defer dropCheck(t, "payments", "chk_amount_negative")
+
+		o := makeOrderFull(uid, 0)
+		o.Items = nil
+		o.Delivery = nil
+		err := repo.CreateOrUpdate(o)
+		if err == nil {
+			t.Fatalf("expected error from Payment Create, got nil")
+		}
+	})
+
+	t.Run("Payment_update_fails_on_check", func(t *testing.T) {
+		uid := "pay-upd-01"
+
+		o1 := makeOrderFull(uid, 0)
+		o1.Items = nil
+		o1.Delivery = nil
+		if err := repo.CreateOrUpdate(o1); err != nil {
+			t.Fatalf("prep payment initial failed: %v", err)
+		}
+
+		addCheckNotValid(t, "payments", "chk_amount_negative_u", "amount < 0")
+		defer dropCheck(t, "payments", "chk_amount_negative_u")
+
+		o2 := o1
+		if o2.Payment != nil {
+			o2.Payment.Amount = o2.Payment.Amount + 1
+		}
+		err := repo.CreateOrUpdate(o2)
+		if err == nil {
+			t.Fatalf("expected error from Payment Updates, got nil")
+		}
+	})
+
+	remigrateClean(t)
 }

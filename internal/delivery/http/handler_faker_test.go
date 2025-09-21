@@ -31,7 +31,7 @@ func fakeOrder(f *gofakeit.Faker) models.Order {
 		DateCreated:       time.Now().UTC(),
 		OofShard:          f.DigitN(1),
 
-		Delivery: models.Delivery{
+		Delivery: &models.Delivery{
 			Name:    f.Name(),
 			Phone:   f.Phone(),
 			Zip:     f.Zip(),
@@ -40,7 +40,7 @@ func fakeOrder(f *gofakeit.Faker) models.Order {
 			Region:  f.State(),
 			Email:   f.Email(),
 		},
-		Payment: models.Payment{
+		Payment: &models.Payment{
 			Transaction:  uid,
 			RequestId:    "",
 			Currency:     f.RandomString([]string{"USD", "EUR"}),

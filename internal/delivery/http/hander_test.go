@@ -110,10 +110,6 @@ func mustOrder(t *testing.T) models.Order {
 	return o
 }
 
-//
-// ---------- infra / misc ----------
-//
-
 func Test_Server_Run_Shutdown(t *testing.T) {
 	s := &httpdelivery.Server{}
 
@@ -139,11 +135,6 @@ func TestHandler_NoRoute(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
-
-//
-// ---------- /api/orders ----------
-//
-
 func Test_GetAllOrders_OK(t *testing.T) {
 	o := mustOrder(t)
 	r := newRouter(&svcStub{
@@ -184,10 +175,6 @@ func Test_GetAllOrders_CacheCustomStatus(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, "body=%s", w.Body.String())
 	require.Contains(t, w.Body.String(), "cache unavailable")
 }
-
-//
-// ---------- /api/order/:uid (cache) ----------
-//
 
 func Test_GetOrderById_CacheHit_OK(t *testing.T) {
 	o := mustOrder(t)
@@ -244,17 +231,12 @@ func Test_GetOrderById_InternalError_500(t *testing.T) {
 func Test_GetOrderById_InvalidUID_400(t *testing.T) {
 	r := newRouter(&svcStub{})
 	w := httptest.NewRecorder()
-	// "%20%20" -> "  " после URL decode; требует TrimSpace в хендлере
 	req := httptest.NewRequest(http.MethodGet, "/api/order/%20%20", nil)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
 	require.Contains(t, w.Body.String(), "invalid uid")
 }
-
-//
-// ---------- /api/order/db/:uid (DB) ----------
-//
 
 func Test_GetDbOrderById_DbHit_OK(t *testing.T) {
 	o := mustOrder(t)
@@ -301,7 +283,6 @@ func Test_GetDbOrderById_InternalError_500(t *testing.T) {
 func Test_GetDbOrderById_MissingUID_400(t *testing.T) {
 	r := newRouter(&svcStub{})
 	w := httptest.NewRecorder()
-	// Требует TrimSpace в GetDbOrderById
 	req := httptest.NewRequest(http.MethodGet, "/api/order/db/%20%20", nil)
 	r.ServeHTTP(w, req)
 

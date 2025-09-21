@@ -3,12 +3,32 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"l0-demo/internal/models"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/jinzhu/gorm"
+	"github.com/sirupsen/logrus"
 )
+
+func humanizeValidationErrors(errs validator.ValidationErrors) string {
+	var b strings.Builder
+	for _, fe := range errs {
+		if fe.Param() != "" {
+			fmt.Fprintf(&b, "%s: %s=%s; ", fe.Namespace(), fe.Tag(), fe.Param())
+		} else {
+			fmt.Fprintf(&b, "%s: %s; ", fe.Namespace(), fe.Tag())
+		}
+	}
+	s := b.String()
+	if len(s) > 2 {
+		s = s[:len(s)-2]
+	}
+	return s
+}
 
 func (s *Service) GetCachedOrder(uid string) (models.Order, error) {
 	return s.OrderCache.GetOrder(uid)
@@ -27,8 +47,12 @@ func (s *Service) PutOrdersFromDbToCache() error {
 	if err != nil {
 		return err
 	}
-	for i := 0; i < len(orders); i++ {
-		s.PutCachedOrder(orders[i])
+	for _, o := range orders {
+		if err := s.v.Struct(o); err != nil {
+			logrus.WithError(err).WithField("uid", o.OrderUid).Warn("skip invalid order from DB")
+			continue
+		}
+		s.PutCachedOrder(o)
 	}
 	return nil
 }
@@ -38,6 +62,12 @@ func (s *Service) PutCachedOrder(order models.Order) {
 }
 
 func (s *Service) PutDbOrder(order models.Order) error {
+	if err := s.v.Struct(order); err != nil {
+		if verrs, ok := err.(validator.ValidationErrors); ok {
+			return fmt.Errorf("validation failed: %s", humanizeValidationErrors(verrs))
+		}
+		return fmt.Errorf("validation error: %w", err)
+	}
 	return s.OrderPostgres.Create(order)
 }
 

@@ -68,7 +68,7 @@ func TestShardedCache_TTL_LazyAndPurge(t *testing.T) {
 	require.False(t, ok, "lazy delete on Get should remove expired key")
 
 	c.Put("y", 99)
-	time.Sleep(ttl/3)
+	time.Sleep(ttl / 3)
 	snapBefore := c.Snapshot()
 	require.Contains(t, snapBefore, "y")
 
