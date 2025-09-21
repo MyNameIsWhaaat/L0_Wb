@@ -190,16 +190,13 @@ func Test_CreateOrUpdate_CreateBranch_CreateError(t *testing.T) {
 func Test_CreateOrUpdate_UpdateBranch_OrderUpdatesError_UniqueTrack(t *testing.T) {
     env := upPostgres(t)
 
-    // уникальный индекс на track_number
     require.NoError(t, env.DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_track ON orders (track_number)`).Error)
 
-    // A и B с разными треками
     a := order("uid_A", "TRACK_A", false)
     b := order("uid_B", "TRACK_B", false)
     require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(a))
     require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(b))
 
-    // теперь пытаемся обновить A, присвоив ему трек B -> конфликт уникальности в UPDATE orders
     a.TrackNumber = "TRACK_B"
     err := env.R.OrderPostgres.CreateOrUpdate(a)
     require.Error(t, err, "expected unique constraint violation on orders(track_number)")
@@ -208,11 +205,9 @@ func Test_CreateOrUpdate_UpdateBranch_OrderUpdatesError_UniqueTrack(t *testing.T
 func Test_CreateOrUpdate_UpdateBranch_DeliveryUpdatesError_DroppedTable(t *testing.T) {
     env := upPostgres(t)
 
-    // создаём запись, чтобы войти в update-путь
     o := order("uid_del_upd", "TRACK_DEL", false)
     require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    // дропаем таблицу deliveries -> UPDATE delivery упадёт
     require.NoError(t, env.DB.DropTable(&models.Delivery{}).Error)
 
     o.Delivery.Name = "New Name"
@@ -239,10 +234,8 @@ func Test_CreateOrUpdate_UpdateBranch_DeleteItemsError_DroppedTable(t *testing.T
     o := order("uid_del_items", "TRACK_DI", true)
     require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    // дроп items: теперь DELETE FROM items ... вернёт ошибку (relation does not exist)
     require.NoError(t, env.DB.DropTable(&models.Item{}).Error)
 
-    // пытаемся обновить с любыми items
     o.Items = []models.Item{{ ChrtId: 2, TrackNumber: "TRACK_DI", Name: "X", Price: 1, TotalPrice: 1, NmId: 2, Status: 200 }}
     err := env.R.OrderPostgres.CreateOrUpdate(o)
     require.Error(t, err, "expected error on DELETE from items after drop")
@@ -251,11 +244,9 @@ func Test_CreateOrUpdate_UpdateBranch_DeleteItemsError_DroppedTable(t *testing.T
 func Test_CreateOrUpdate_UpdateBranch_CreateItems_Success(t *testing.T) {
     env := upPostgres(t)
 
-    // 1) создаём заказ без items — запись появится, но ветка len(items)>0 не тронется
-    o := order("uid_items_ok", "TRACK_OK", false) // false => Items: []
+    o := order("uid_items_ok", "TRACK_OK", false)
     require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    // 2) обновляем этот же заказ, добавив items — попадём в update-путь и в ветку len(items)>0
     o.Items = []models.Item{{
         ChrtId:      123456,
         TrackNumber: o.TrackNumber,
@@ -267,7 +258,6 @@ func Test_CreateOrUpdate_UpdateBranch_CreateItems_Success(t *testing.T) {
     }}
     require.NoError(t, env.R.OrderPostgres.CreateOrUpdate(o))
 
-    // проверяем, что item реально вставился
     got, err := env.R.OrderPostgres.Get("uid_items_ok")
     require.NoError(t, err)
     require.Len(t, got.Items, 1)
