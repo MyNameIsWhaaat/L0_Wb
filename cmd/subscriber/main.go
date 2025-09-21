@@ -29,7 +29,9 @@ import (
 // @contact.email katanatroll@yandex.ru
 
 func main() {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil {
+    	logrus.Fatalf("failed to load .env: %s", err)
+	}
 	cfg, err := configs.LoadConfig(".")
 	if err != nil {
 		logrus.Fatalf("config load: %s", err)

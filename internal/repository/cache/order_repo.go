@@ -49,7 +49,7 @@ func (o *OrderCacheRepo) GetAllOrders() ([]models.Order, error) {
 	if len(o.cch.Data) == 0 {
 		return []models.Order{}, nil
 	}
-	orders := make([]models.Order, len(o.cch.Data), len(o.cch.Data))
+	orders := make([]models.Order, len(o.cch.Data))
 
 	i := 0
 	for _, valueMap := range o.cch.Data {
