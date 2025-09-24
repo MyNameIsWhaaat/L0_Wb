@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"l0-demo/internal/configs"
 	httpdelivery "l0-demo/internal/delivery/http"
 	"l0-demo/internal/delivery/kafka"
@@ -76,12 +77,6 @@ func main() {
 		BaseBackoff: time.Duration(cfg.KafkaBackoffMillis) * time.Millisecond,
 	}, svc)
 
-	defer func() {
-		if cerr := consumer.Close(context.Background()); cerr != nil {
-			logrus.Errorf("kafka close: %v", cerr)
-		}
-	}()
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -114,14 +109,17 @@ func main() {
 		logrus.Print("context canceled, shutting down")
 	}
 
-	if err := srv.Shutdown(context.Background()); err != nil {
-		logrus.Errorf("http shutdown: %s", err)
-	}
-
-	if err := consumer.Close(context.Background()); err != nil {
-		logrus.Errorf("consumer close: %s", err)
-	}
+	cancel()
 
 	wg.Wait()
+
+	shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shCancel()
+	if err := srv.Shutdown(shCtx); err != nil { 
+		if !errors.Is(err, context.DeadlineExceeded) {
+			logrus.Errorf("http shutdown: %s", err)
+		}
+	}
+
 	logrus.Print("service stopped")
 }
