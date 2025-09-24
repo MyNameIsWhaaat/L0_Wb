@@ -2,20 +2,20 @@ package main
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
-
-	"github.com/joho/godotenv"
-	"github.com/sirupsen/logrus"
-
 	"l0-demo/internal/configs"
 	httpdelivery "l0-demo/internal/delivery/http"
 	"l0-demo/internal/delivery/kafka"
 	"l0-demo/internal/repository"
 	"l0-demo/internal/repository/postgres"
 	"l0-demo/internal/service"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 )
 
 // @title kafka learning service
@@ -68,9 +68,12 @@ func main() {
 	logrus.Print("cache warmed from db")
 
 	consumer := kafka.NewConsumer(kafka.Config{
-		Brokers: []string{cfg.KafkaBrokers},
-		GroupID: cfg.KafkaGroupID,
-		Topic:   cfg.KafkaTopic,
+		Brokers:     cfg.KafkaBrokersSlice(),
+		GroupID:     cfg.KafkaGroupID,
+		Topic:       cfg.KafkaTopic,
+		DLQ:         cfg.KafkaDLQ,
+		MaxRetries:  cfg.KafkaMaxRetries,
+		BaseBackoff: time.Duration(cfg.KafkaBackoffMillis) * time.Millisecond,
 	}, svc)
 
 	defer func() {

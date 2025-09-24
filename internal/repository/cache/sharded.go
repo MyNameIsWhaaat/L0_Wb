@@ -37,7 +37,7 @@ func WithShardTTL(ttl time.Duration) ShardedOption { return func(c *ShardedCache
 
 func NewShardedCache(opts ...ShardedOption) *ShardedCache {
 	c := &ShardedCache{now: time.Now, stop: make(chan struct{})}
-	WithShards(16)(c) // default 16
+	WithShards(16)(c)
 	for _, o := range opts {
 		o(c)
 	}
@@ -66,7 +66,7 @@ func (c *ShardedCache) Close() {
 func (c *ShardedCache) shardFor(key string) *shard {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
-	idx := int(h.Sum32()) & (len(c.shards) - 1) // len — степень двойки → быстрый mod
+	idx := int(h.Sum32()) & (len(c.shards) - 1)
 	return &c.shards[idx]
 }
 

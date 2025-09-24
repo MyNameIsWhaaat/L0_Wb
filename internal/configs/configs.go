@@ -10,7 +10,11 @@ import (
 type Config struct {
 	KafkaBrokers string `env:"KAFKA_BROKERS" envDefault:"localhost:9092"`
 	KafkaTopic   string `env:"KAFKA_TOPIC" envDefault:"orders"`
+	KafkaDLQ     string `env:"KAFKA_DLQ"     envDefault:"orders.dlq"`
 	KafkaGroupID string `env:"KAFKA_GROUP_ID" envDefault:"order-svc"`
+
+	KafkaMaxRetries    int `env:"KAFKA_MAX_RETRIES"    envDefault:"5"`
+	KafkaBackoffMillis int `env:"KAFKA_BACKOFF_MILLIS" envDefault:"200"`
 
 	HTTPAddr string `env:"HTTP_ADDR" envDefault:":8081"`
 

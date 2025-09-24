@@ -16,3 +16,7 @@
 
 .idea
 .vscode
+
+# Binaries
+dlq-replay
+dlq-replay.exe

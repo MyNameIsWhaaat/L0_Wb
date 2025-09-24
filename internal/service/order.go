@@ -81,15 +81,29 @@ func (s *Service) GetDbOrder(uid string) (order models.Order, err error) {
 
 func (s *Service) HandleMessage(ctx context.Context, payload []byte) error {
 	var ord models.Order
+
 	if err := json.Unmarshal(payload, &ord); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrDecode, err)
 	}
+
+	if err := s.v.Struct(ord); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	if ord.OrderUid == "" {
+		return fmt.Errorf("%w: empty order_uid", ErrValidation)
+	}
+
 	if ord.DateCreated.IsZero() {
 		ord.DateCreated = time.Now().UTC()
 	}
 	if err := s.OrderPostgres.CreateOrUpdate(ord); err != nil {
-		return err
+		return fmt.Errorf("repo: %w", err)
 	}
+
 	s.OrderCache.PutOrder(ord.OrderUid, ord)
+
+	logrus.Infof("processed order %s", ord.OrderUid)
+
 	return nil
 }
